@@ -1,0 +1,173 @@
+---
+title: "2016 Election: An Aberration?"
+author: "Jacob Rosen"
+date: "May 9, 2018"
+output: html_document
+---
+
+The following code was used to to examine the effect of select demographic factors on Republican elecition margin and outcome for the 
+Presidency and House of Representatives for the 2016 general election.
+
+```{r} 
+library(SDSRegressionR)
+library(ggplot2)
+
+#import data
+final <- read.csv("working/final.csv", stringsAsFactors = FALSE)
+View(final)
+names(final)
+
+#add modified variables
+ #predictors
+ final$manufacturing_p <- 100*final$manufacturing
+ final$blacks_p <- 100*final$blacks
+ final$public_ins_p <- 100*final$public_ins
+
+ #mean center predictors
+ center_scale <- function(x) {
+   scale(x, scale = FALSE)
+ }
+ final$blacks_p <- center_scale(final$blacks_p)
+ final$public_ins_p <- center_scale(final$public_ins_p)
+ final$medincdiff_k <- center_scale(final$medincdiff_k)
+ final$manufacturing_p <- center_scale(final$manufacturing_p)
+ final$foreign_p <- center_scale(final$foreign_p)
+ 
+ #outcome dummies for log regression
+ final$Twin[final$X2016_Rmargin < 0] <- 0
+ final$Twin[final$X2016_Rmargin > 0] <- 1
+ final$Twin_f <- factor(final$Twin, labels=c("no", "yes"), levels=c(0, 1)) #1 = Trump won that district
+ final$Hwin[final$House_Rmargin < 0] <- 0
+ final$Hwin[final$House_Rmargin > 0] <- 1
+ final$Hwin_f <- factor(final$Hwin, labels=c("no", "yes"), levels=c(0, 1)) #1 = a republican won that district
+ 
+#manufacturing by itself
+ summary(lm(X2016_Rmargin ~ manufacturing_p, data=final))
+ summary(lm(House_Rmargin ~ manufacturing_p, data=final))
+ summary(glm(Twin_f ~ manufacturing_p, family="binomial",  data=final))
+ summary(glm(Hwin_f ~ manufacturing_p, family="binomial",  data=final))
+ 
+#MLR presidential
+ #presidential MLR model
+ presMLRmod1 <- lm(X2016_Rmargin ~ blacks_p + manufacturing_p + medincdiff_k +
+                   public_ins_p + foreign_p, data=final)
+ summary(presMLRmod1)
+  #assumptions check
+  vif(presMLRmod1)
+  residFitted(presMLRmod1)
+  cooksPlot(houseMLRmod1, key.variable="ï..ID", print.obs=TRUE, sort.obs=TRUE, save.cutoff = TRUE)
+  cooksCutOff*5
+  
+  
+#MLR House
+ #House MLR model
+ houseMLRmod1 <- lm(House_Rmargin ~ blacks_p + manufacturing_p + medincdiff_k +
+                      public_ins_p + foreign_p, data=final)
+ summary(houseMLRmod1)
+  #assumptions
+  vif(presMLRmod1)
+  residFitted(houseMLRmod1)
+  cooksPlot(houseMLRmod1, key.variable="ï..ID", print.obs=TRUE, sort.obs=TRUE, save.cutoff = TRUE)
+  "%not in%" <- Negate("%in%")
+  gfinal <- final[final$ï..ID %not in% c("46", "112", "42", "114", "8"),]  #shared top 5 CD for both pres and house
+#rerun models with good data
+  presMLRmod2 <- lm(X2016_Rmargin ~ blacks_p + manufacturing_p + medincdiff_k +
+                      public_ins_p + foreign_p, data=gfinal)
+  summary(presMLRmod2)
+  
+  houseMLRmod2 <- lm(House_Rmargin ~ blacks_p + manufacturing_p + medincdiff_k +
+                       public_ins_p + foreign_p, data=gfinal)
+  summary(houseMLRmod2)
+```
+
+```{r}
+#MLR prediction
+  #predicting House margin from Pres model
+  Hmlr_pred <- data.frame(gfinal, Hmlrpred = predict(presMLRmod2, gfinal))
+  View(Hmlr_pred)
+  #MSS- SS from pres model's predicted Margin values
+  hm <- mean(Hmlr_pred$House_Rmargin)
+  a <- sum((as.vector(Hmlr_pred$Hmlrpred)-hm)^2)
+  #TSS- SS from House Mragin obvs
+  b <- sum((as.vector(Hmlr_pred$House_Rmargin)-hm)^2)
+  100*(a/b)
+  
+  #predicting Pres margin from House model
+  Pmlr_pred <- data.frame(gfinal, Pmlrpred = predict(houseMLRmod2, gfinal))
+  View(Pmlr_pred)
+  #MSS- SS from House model's predicted Margin values
+  pm <- mean(Pmlr_pred$X2016_Rmargin)
+  c <- sum((as.vector(Pmlr_pred$Pmlrpred)-pm)^2)
+  #TSS- SS from Pres Mragin obvs
+  d <- sum((as.vector(Pmlr_pred$X2016_Rmargin)-pm)^2)
+  100*(c/d)
+```
+```{r}
+#Logistic presidential
+   #presidential log model
+   preslogmod <- glm(Twin_f ~ blacks_p + manufacturing_p + medincdiff_k
+                     + foreign_p + public_ins_p, family="binomial", data=final)
+   summary(preslogmod)
+   exp(preslogmod$coef) #odds ratio
+   exp(confint.default(preslogmod))
+   library(rms) #getting stats
+   lrm(Twin_f ~ blacks_p + manufacturing_p + medincdiff_k
+       + foreign_p + public_ins_p, data=final)
+   
+#Logistic house 
+ #house log model 
+ houselogmod <- glm(Hwin_f ~ blacks_p + manufacturing_p + medincdiff_k
+                     + foreign_p + public_ins_p, family="binomial", data=final)
+ summary(houselogmod)
+   exp(houselogmod$coef) #odds ratio
+   exp(confint.default(houselogmod))
+   #getting stats
+   lrm(Hwin_f ~ blacks_p + manufacturing_p + medincdiff_k
+       + foreign_p + public_ins_p, data=final)
+```
+```{r}
+#LOG predict
+   #predicting House from Pres model
+   Hlog_pred <- data.frame(final, Hlogpred = predict(preslogmod, final, type = "response"))
+   View(Hlog_pred)
+   Hlog_pred$Hlogpred_f <- NA
+   Hlog_pred$Hlogpred_f[which(Hlog_pred$Hlogpred >= .5)] <- 1
+   Hlog_pred$Hlogpred_f[which(Hlog_pred$Hlogpred < .5)] <- 0
+   addmargins(table(Hlog_pred$Hwin, Hlog_pred$Hlogpred_f, dnn=c("Obs", "Predicted")))
+   (150+200)/435
+   
+   #predicting Pres from House model
+   Plog_pred <- data.frame(final, Plogpred = predict(houselogmod, final, type = "response"))
+   View(Plog_pred)
+   Plog_pred$Plogpred_f <- NA
+   Plog_pred$Plogpred_f[which(Plog_pred$Plogpred >= .5)] <- 1
+   Plog_pred$Plogpred_f[which(Plog_pred$Plogpred < .5)] <- 0
+   addmargins(table(Plog_pred$Twin, Plog_pred$Plogpred_f, dnn=c("Obs", "Predicted")))
+   (149+203)/435
+```
+```{r}
+##graphs 
+#logistic, foreign
+   houselog_forn_mns <- summary(lsmeans(houselogmod, "foreign_p",
+                                        at=list(foreign_p=seq(-13, 49, 3)), type="response"))
+   preslog_forn_mns <- summary(lsmeans(preslogmod, "foreign_p",
+                                       at=list(foreign_p=seq(-13, 49, 3)), type="response"))
+   log_foreign_mns <- read.csv("working/log_foreign_mns.csv", stringsAsFactors = FALSE)
+   View(log_foreign_mns)
+   
+   ggplot(log_foreign_mns, aes(x=foreign_p, y=prob, color=election)) +
+     geom_point() + theme_bw() + expand_limits(y=0) +
+     geom_line() + geom_ribbon(data=log_foreign_mns, aes(ymin=log_foreign_mns$asymp.LCL, ymax=log_foreign_mns$asymp.UCL), alpha=.1, linetype=0)+
+     scale_x_continuous(breaks = seq(-13, 47, 6)) 
+  
+   #MLR, foreign%
+   housemlr_forn_mns <- summary(lsmeans(houseMLRmod1, "foreign_p", at=list(foreign_p=seq(-13, 47, 1))))
+   presmlr_forn_mns <- summary(lsmeans(presMLRmod1, "foreign_p", at=list(foreign_p=seq(-13, 47, 1))))
+   mlr_forn_mns <- read.csv("working/mlr_forn_mns.csv", stringsAsFactors = FALSE)
+   
+   ggplot(mlr_forn_mns, aes(x=foreign_p, y=lsmean, color=election)) +
+     geom_point(size=.7) + theme_bw() +   geom_hline(yintercept = 0, color="red") + 
+     geom_ribbon(data=mlr_forn_mns, aes(ymin=mlr_forn_mns$lower.CL, ymax=mlr_forn_mns$upper.CL), alpha=.1, linetype=0)+
+     geom_line() + scale_x_continuous(name="Foreign-Born %", breaks=seq(-13, 47, 6)) +
+     scale_y_continuous(name="Predicted Margin", breaks=seq(-110, 30, 20))
+```
